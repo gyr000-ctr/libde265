@@ -289,8 +289,10 @@ struct de265_image {
   de265_chroma get_chroma_format() const { return chroma_format; }
 
   int get_bit_depth(int cIdx) const {
-    if (cIdx==0) return sps->BitDepth_Y;
-    else         return sps->BitDepth_C;
+    // Input images of the encoder are allocated without an SPS, so fall back to the
+    // bit depths that alloc_image() stored in the image itself.
+    if (cIdx==0) return sps ? sps->BitDepth_Y : BitDepth_Y;
+    else         return sps ? sps->BitDepth_C : BitDepth_C;
   }
 
   int get_bytes_per_pixel(int cIdx) const {

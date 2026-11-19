@@ -159,10 +159,11 @@ de265_error encoder_context::encode_headers()
   pps->sps = sps; //sps.get();
   pps->pic_init_qp = algo.getPPS_QP();
 
-  // turn off deblocking filter
+  // deblocking filter signalling. When enabled, the PPS leaves the filter on for all
+  // slices and the slice header only has to mirror the PPS value (no override flag).
   pps->deblocking_filter_control_present_flag = true;
   pps->deblocking_filter_override_enabled_flag = false;
-  pps->pic_disable_deblocking_filter_flag = true;
+  pps->pic_disable_deblocking_filter_flag = !params.deblock;
   pps->pps_loop_filter_across_slices_enabled_flag = false;
 
   pps->set_derived_values(sps.get());
@@ -263,7 +264,7 @@ de265_error encoder_context::encode_picture_from_input_buffer()
 
   // slice
 
-  imgdata->shdr.slice_deblocking_filter_disabled_flag = true;
+  imgdata->shdr.slice_deblocking_filter_disabled_flag = pps->pic_disable_deblocking_filter_flag;
   imgdata->shdr.slice_loop_filter_across_slices_enabled_flag = false;
   imgdata->shdr.compute_derived_values(pps.get());
 

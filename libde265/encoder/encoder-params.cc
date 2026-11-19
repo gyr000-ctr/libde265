@@ -58,6 +58,10 @@ encoder_params::encoder_params()
   mAlgo_TB_RateEstimation.set_ID("TB-RateEstimation");
 
   mAlgo_MEMode.set_ID("MEMode");
+
+  deblock.set_ID("deblock");
+  deblock.set_default(false);
+  deblock.set_description("apply the deblocking filter (PPS/SH signalling and reconstructed picture)");
 }
 
 
@@ -78,6 +82,8 @@ void encoder_params::registerParams(config_parameters& config)
 
   config.add_option(&mAlgo_MEMode);
   config.add_option(&mAlgo_TB_RateEstimation);
+
+  config.add_option(&deblock);
 
   mSOP_LowDelay.registerParams(config);
 }

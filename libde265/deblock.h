@@ -24,6 +24,9 @@
 #include "libde265/decctx.h"
 
 void add_deblocking_tasks(image_unit* imgunit);
-void apply_deblocking_filter(de265_image* img); //decoder_context* ctx);
+/* Run the deblocking filter on 'img'. 'accel' provides the accelerated 8-bit filter
+   kernels (the caller's decoder_context::acceleration in the decoder, the encoder's
+   own acceleration table in the encoder). */
+void apply_deblocking_filter(de265_image* img, const struct acceleration_functions* accel);
 
 #endif

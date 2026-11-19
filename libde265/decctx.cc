@@ -1873,7 +1873,7 @@ void decoder_context::run_postprocessing_filters_sequential(de265_image* img)
 #endif
 
     if (!img->decctx->param_disable_deblocking) {
-      apply_deblocking_filter(img);
+      apply_deblocking_filter(img, &img->decctx->acceleration);
     }
 
 #if SAVE_INTERMEDIATE_IMAGES

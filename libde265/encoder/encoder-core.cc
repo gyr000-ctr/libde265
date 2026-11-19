@@ -24,6 +24,8 @@
 #include "libde265/encoder/encoder-core.h"
 #include "libde265/encoder/encoder-context.h"
 #include "libde265/encoder/encoder-syntax.h"
+#include "libde265/deblock.h"
+#include "libde265/fallback.h"
 #include <assert.h>
 #include <limits>
 #include <math.h>
@@ -304,6 +306,35 @@ double encode_image(encoder_context* ectx,
   // frame PSNR
 
   ectx->ctbs.writeReconstructionToImage(ectx->img, &ectx->get_sps());
+
+
+  // in-loop deblocking filter
+  //
+  // The coded stream signals deblocking in PPS/SH. Since a decoder would filter the
+  // reconstructed picture, the encoder has to apply exactly the same filter to the
+  // picture it keeps as reference and hands out, otherwise encoder and decoder
+  // reconstructions drift apart (and the encoder-side output shows the blocking).
+  // The metadata the filter reads (CU/TU boundaries, prediction modes, QPs, nonzero
+  // coefficients) is written from the coding tree first, exactly like the decoder
+  // stores it while parsing the same syntax elements.
+
+  if (ectx->params.deblock) {
+    ectx->ctbs.writeFilterMetadata(ectx->img);
+
+    // The deblocking filter looks up the slice header through the CTB metadata.
+    // The encoder codes a single slice per picture; the image owns a copy of the
+    // header (the picture buffer's image_data keeps the original).
+    for (int y=0;y<ectx->get_sps().PicHeightInCtbsY;y++)
+      for (int x=0;x<ectx->get_sps().PicWidthInCtbsY;x++)
+        ectx->img->set_SliceHeaderIndex(x << Log2CtbSize, y << Log2CtbSize, 0);
+
+    ectx->img->slices.clear();
+    slice_segment_header* shdr = new slice_segment_header(*ectx->shdr);
+    shdr->slice_index = 0;
+    ectx->img->slices.push_back(shdr);
+
+    apply_deblocking_filter(ectx->img, &ectx->acceleration);
+  }
 
 #if 0
   std::ofstream ostr("out.pgm");

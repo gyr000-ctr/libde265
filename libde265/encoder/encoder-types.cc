@@ -743,6 +743,60 @@ PixelAccessor enc_tb::getPixels(int x,int y, int cIdx, const seq_parameter_set& 
 }
 
 
+void CTBTreeMatrix::writeFilterMetadata(de265_image* img) const
+{
+  for (size_t i=0;i<mCTBs.size();i++) {
+    const enc_cb* cb = mCTBs[i];
+    cb->writeFilterMetadata(img);
+  }
+}
+
+
+void enc_cb::writeFilterMetadata(de265_image* img) const
+{
+  if (split_cu_flag) {
+    for (int i=0;i<4;i++) {
+      if (children[i]) {
+        children[i]->writeFilterMetadata(img);
+      }
+    }
+  }
+  else {
+    // Same fields that read_coding_unit() stores in the decoder.
+    img->set_log2CbSize(x,y,log2Size, true);
+    img->clear_split_transform_flags(x,y,log2Size);
+    img->set_pred_mode(x,y,log2Size, PredMode);
+    img->set_PartMode(x,y, PartMode);
+    img->set_QPY(x,y,log2Size, qp);
+
+    transform_tree->writeFilterMetadata(img, x,y, 0);
+  }
+}
+
+
+void enc_tb::writeFilterMetadata(de265_image* img, int x0,int y0,int trafoDepth) const
+{
+  if (split_transform_flag) {
+    img->set_split_transform_flag(x0,y0,trafoDepth);
+
+    int x1 = x0 + (1<<(log2Size-1));
+    int y1 = y0 + (1<<(log2Size-1));
+
+    children[0]->writeFilterMetadata(img, x0,y0, trafoDepth+1);
+    children[1]->writeFilterMetadata(img, x1,y0, trafoDepth+1);
+    children[2]->writeFilterMetadata(img, x0,y1, trafoDepth+1);
+    children[3]->writeFilterMetadata(img, x1,y1, trafoDepth+1);
+  }
+  else {
+    // In the decoder, the luma nonzero-coefficient flag is set for every luma
+    // transform block that carries a coded block flag (see residual_coding()).
+    if (cbf[0]) {
+      img->set_nonzero_coefficient(x0,y0, log2Size);
+    }
+  }
+}
+
+
 void PixelAccessor::copyToImage(de265_image* img, int cIdx) const
 {
   uint8_t* p = img->get_image_plane_at_pos(cIdx, mXMin, mYMin);

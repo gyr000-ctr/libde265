@@ -320,8 +320,10 @@ void derive_boundaryStrength(de265_image* img, bool vertical, int yStart,int yEn
 		int numMV_Q = mviQ.predFlag[0] + mviQ.predFlag[1];
 
 		if (numMV_P!=numMV_Q) {
-		  img->decctx->add_warning(DE265_WARNING_NUMMVP_NOT_EQUAL_TO_NUMMVQ, false);
-		  img->integrity = INTEGRITY_DECODING_ERRORS;
+		  if (img->decctx) {
+		    img->decctx->add_warning(DE265_WARNING_NUMMVP_NOT_EQUAL_TO_NUMMVQ, false);
+		    img->integrity = INTEGRITY_DECODING_ERRORS;
+		  }
 		}
 
 		// two different reference pictures or only one reference picture
@@ -410,7 +412,9 @@ static uint8_t table_8_23_tc[54] = {
 
 // 8.7.2.4
 template <class pixel_t>
-void edge_filtering_luma_internal(de265_image* img, bool vertical,
+void edge_filtering_luma_internal(de265_image* img,
+                                  const acceleration_functions* accel,
+                                  bool vertical,
                                   int yStart,int yEnd, int xStart,int xEnd)
 {
   //printf("luma %d-%d %d-%d\n",xStart,xEnd,yStart,yEnd);
@@ -592,8 +596,8 @@ void edge_filtering_luma_internal(de265_image* img, bool vertical,
           }
 
           if constexpr (sizeof(pixel_t)==1) {
-            img->decctx->acceleration.deblock_luma_8((uint8_t*)ptr, stride, vertical,
-                                                     dE,dEp,dEq,tc, filterP,filterQ);
+            accel->deblock_luma_8((uint8_t*)ptr, stride, vertical,
+                                  dE,dEp,dEq,tc, filterP,filterQ);
           }
           else {
             deblock_luma_kernel<pixel_t>(ptr, stride, vertical,
@@ -605,23 +609,25 @@ void edge_filtering_luma_internal(de265_image* img, bool vertical,
 }
 
 
-void edge_filtering_luma(de265_image* img, bool vertical,
+void edge_filtering_luma(de265_image* img, const acceleration_functions* accel,
+                         bool vertical,
                          int yStart,int yEnd, int xStart,int xEnd)
 {
   if (img->high_bit_depth(0)) {
-    edge_filtering_luma_internal<uint16_t>(img,vertical,yStart,yEnd,xStart,xEnd);
+    edge_filtering_luma_internal<uint16_t>(img,accel,vertical,yStart,yEnd,xStart,xEnd);
   }
   else {
-    edge_filtering_luma_internal<uint8_t>(img,vertical,yStart,yEnd,xStart,xEnd);
+    edge_filtering_luma_internal<uint8_t>(img,accel,vertical,yStart,yEnd,xStart,xEnd);
   }
 }
 
-void edge_filtering_luma_CTB(de265_image* img, bool vertical, int xCtb,int yCtb)
+void edge_filtering_luma_CTB(de265_image* img, const acceleration_functions* accel,
+                             bool vertical, int xCtb,int yCtb)
 {
   int ctbSize = img->get_sps().CtbSizeY;
   int deblkSize = ctbSize/4;
 
-  edge_filtering_luma(img,vertical,
+  edge_filtering_luma(img,accel,vertical,
                       yCtb*deblkSize, (yCtb+1)*deblkSize,
                       xCtb*deblkSize, (xCtb+1)*deblkSize);
 }
@@ -633,7 +639,9 @@ void edge_filtering_luma_CTB(de265_image* img, bool vertical, int xCtb,int yCtb)
 /** ?Start and ?End values in 4-luma pixels resolution.
  */
 template <class pixel_t>
-void edge_filtering_chroma_internal(de265_image* img, bool vertical,
+void edge_filtering_chroma_internal(de265_image* img,
+                                    const acceleration_functions* accel,
+                                    bool vertical,
                                     int yStart,int yEnd,
                                     int xStart,int xEnd)
 {
@@ -733,7 +741,7 @@ void edge_filtering_chroma_internal(de265_image* img, bool vertical,
 
 
             if constexpr (sizeof(pixel_t)==1) {
-              img->decctx->acceleration.deblock_chroma_8((uint8_t*)ptr, stride, 1, tc, filterP,filterQ);
+              accel->deblock_chroma_8((uint8_t*)ptr, stride, 1, tc, filterP,filterQ);
             }
             else {
               deblock_chroma_kernel<pixel_t>(ptr, stride, true, tc, filterP,filterQ, bitDepth_C);
@@ -749,7 +757,7 @@ void edge_filtering_chroma_internal(de265_image* img, bool vertical,
             if (img->get_cu_transquant_bypass(SubWidthC*xDi,SubHeightC*yDi)) filterQ=false;
 
             if constexpr (sizeof(pixel_t)==1) {
-              img->decctx->acceleration.deblock_chroma_8((uint8_t*)ptr, stride, 0, tc, filterP,filterQ);
+              accel->deblock_chroma_8((uint8_t*)ptr, stride, 0, tc, filterP,filterQ);
             }
             else {
               deblock_chroma_kernel<pixel_t>(ptr, stride, false, tc, filterP,filterQ, bitDepth_C);
@@ -761,24 +769,26 @@ void edge_filtering_chroma_internal(de265_image* img, bool vertical,
 }
 
 
-void edge_filtering_chroma(de265_image* img, bool vertical, int yStart,int yEnd,
+void edge_filtering_chroma(de265_image* img, const acceleration_functions* accel,
+                           bool vertical, int yStart,int yEnd,
                            int xStart,int xEnd)
 {
   if (img->high_bit_depth(1)) {
-    edge_filtering_chroma_internal<uint16_t>(img,vertical,yStart,yEnd,xStart,xEnd);
+    edge_filtering_chroma_internal<uint16_t>(img,accel,vertical,yStart,yEnd,xStart,xEnd);
   }
   else {
-    edge_filtering_chroma_internal<uint8_t>(img,vertical,yStart,yEnd,xStart,xEnd);
+    edge_filtering_chroma_internal<uint8_t>(img,accel,vertical,yStart,yEnd,xStart,xEnd);
   }
 }
 
 
-void edge_filtering_chroma_CTB(de265_image* img, bool vertical, int xCtb,int yCtb)
+void edge_filtering_chroma_CTB(de265_image* img, const acceleration_functions* accel,
+                               bool vertical, int xCtb,int yCtb)
 {
   int ctbSize = img->get_sps().CtbSizeY;
   int deblkSize = ctbSize/4;
 
-  edge_filtering_chroma(img,vertical,
+  edge_filtering_chroma(img,accel,vertical,
                         yCtb*deblkSize, (yCtb+1)*deblkSize,
                         xCtb*deblkSize, (xCtb+1)*deblkSize);
 }
@@ -862,10 +872,12 @@ void thread_task_deblock_CTBRow::work()
   if (deblocking_enabled) {
     derive_boundaryStrength(img, vertical, first,last, xStart,xEnd);
 
-    edge_filtering_luma(img, vertical, first,last, xStart,xEnd);
+    edge_filtering_luma(img, &img->decctx->acceleration,
+                        vertical, first,last, xStart,xEnd);
 
     if (img->get_sps().ChromaArrayType != CHROMA_MONO) {
-      edge_filtering_chroma(img, vertical, first,last, xStart,xEnd);
+      edge_filtering_chroma(img, &img->decctx->acceleration,
+                            vertical, first,last, xStart,xEnd);
     }
   }
 
@@ -905,10 +917,8 @@ void add_deblocking_tasks(image_unit* imgunit)
 }
 
 
-void apply_deblocking_filter(de265_image* img) // decoder_context* ctx)
+void apply_deblocking_filter(de265_image* img, const acceleration_functions* accel)
 {
-  //decoder_context* ctx = img->decctx;
-
   char enabled_deblocking = derive_edgeFlags(img);
 
   if (enabled_deblocking)
@@ -917,10 +927,10 @@ void apply_deblocking_filter(de265_image* img) // decoder_context* ctx)
 
       logtrace(LogDeblock,"VERTICAL\n");
       derive_boundaryStrength(img, true ,0,img->get_deblk_height(),0,img->get_deblk_width());
-      edge_filtering_luma    (img, true ,0,img->get_deblk_height(),0,img->get_deblk_width());
+      edge_filtering_luma    (img, accel, true ,0,img->get_deblk_height(),0,img->get_deblk_width());
 
       if (img->get_sps().ChromaArrayType != CHROMA_MONO) {
-        edge_filtering_chroma  (img, true ,0,img->get_deblk_height(),0,img->get_deblk_width());
+        edge_filtering_chroma  (img, accel, true ,0,img->get_deblk_height(),0,img->get_deblk_width());
       }
 #if 0
       char buf[1000];
@@ -932,10 +942,10 @@ void apply_deblocking_filter(de265_image* img) // decoder_context* ctx)
 
       logtrace(LogDeblock,"HORIZONTAL\n");
       derive_boundaryStrength(img, false ,0,img->get_deblk_height(),0,img->get_deblk_width());
-      edge_filtering_luma    (img, false ,0,img->get_deblk_height(),0,img->get_deblk_width());
+      edge_filtering_luma    (img, accel, false ,0,img->get_deblk_height(),0,img->get_deblk_width());
 
       if (img->get_sps().ChromaArrayType != CHROMA_MONO) {
-        edge_filtering_chroma  (img, false ,0,img->get_deblk_height(),0,img->get_deblk_width());
+        edge_filtering_chroma  (img, accel, false ,0,img->get_deblk_height(),0,img->get_deblk_width());
       }
 
 #if 0

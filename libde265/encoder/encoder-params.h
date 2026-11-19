@@ -125,6 +125,11 @@ struct encoder_params
   option_MEMode mAlgo_MEMode;
 
 
+  // in-loop filters
+
+  option_bool deblock; // enable the deblocking filter in the coded stream and in the reconstruction
+
+
   // intra-prediction
 
   enum IntraPredSearch intraPredSearch;

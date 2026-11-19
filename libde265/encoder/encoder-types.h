@@ -200,6 +200,9 @@ class enc_tb : public enc_node
   void writeReconstructionToImage(de265_image* img,
                                   const seq_parameter_set* sps) const;
 
+  // Part of enc_cb::writeFilterMetadata(): per-TU metadata.
+  void writeFilterMetadata(de265_image* img, int x0,int y0,int trafoDepth) const;
+
   /*
   static void* operator new(const size_t size) { return mMemPool.new_obj(size); }
   static void operator delete(void* obj) { mMemPool.delete_obj(obj); }
@@ -313,6 +316,10 @@ public:
   void writeReconstructionToImage(de265_image* img,
                                   const seq_parameter_set* sps) const;
 
+  /* Write the decoding metadata that the in-loop filters (deblocking) read from the
+     image: CU size, prediction mode, partition mode, QP and per-TU split/coefficient
+     flags. This mirrors what read_coding_unit() stores in the decoder. */
+  void writeFilterMetadata(de265_image* img) const;
 
   virtual void debug_dumpTree(int flags, int indent=0) const;
 
@@ -374,6 +381,8 @@ class CTBTreeMatrix
 
   void writeReconstructionToImage(de265_image* img,
                                   const seq_parameter_set*) const;
+
+  void writeFilterMetadata(de265_image* img) const;
 
  private:
   std::vector<enc_cb*> mCTBs;

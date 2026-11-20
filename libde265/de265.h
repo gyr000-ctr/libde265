@@ -185,6 +185,9 @@ LIBDE265_API int de265_get_bits_per_pixel(const de265_image*,int channel);
 LIBDE265_API const uint8_t* de265_get_image_plane(const de265_image*, int channel, int* out_stride);
 LIBDE265_API void* de265_get_image_plane_user_data(const de265_image*, int channel);
 LIBDE265_API de265_PTS de265_get_image_PTS(const de265_image*);
+
+/* Picture order count of the decoded picture. */
+LIBDE265_API int de265_get_image_POC(const de265_image*);
 LIBDE265_API void* de265_get_image_user_data(const de265_image*);
 LIBDE265_API void de265_set_image_user_data(de265_image*, void *user_data);
 
@@ -308,6 +311,18 @@ LIBDE265_API de265_error de265_decode(de265_decoder_context*, int* more);
 /* Clear decoder state. Call this when skipping in the stream.
  */
 LIBDE265_API void de265_reset(de265_decoder_context*);
+
+/* Seek forward to the next random-access point in the stream.
+   All pictures currently buffered in the decoder (reference pictures and
+   pictures queued for output) are discarded, and decoding resumes at the
+   next IRAP picture. A CRA picture is then handled like a BLA picture:
+   the DPB is flushed, the picture order count is reset, and the RASL
+   pictures belonging to the CRA picture are discarded instead of being
+   output. Input data already pushed into the decoder and the parameter
+   sets (VPS/SPS/PPS) are kept; VCL NAL units before the random-access
+   point are skipped. The first picture returned after the seek is the
+   random-access picture itself. */
+LIBDE265_API void de265_seek_to_next_random_access_point(de265_decoder_context*);
 
 /* Return next decoded picture, if there is any. If no complete picture has been
    decoded yet, NULL is returned. You should call de265_release_next_picture() to

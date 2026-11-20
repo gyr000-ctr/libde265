@@ -426,6 +426,14 @@ LIBDE265_API void de265_reset(de265_decoder_context* de265ctx)
 }
 
 
+LIBDE265_API void de265_seek_to_next_random_access_point(de265_decoder_context* de265ctx)
+{
+  decoder_context* ctx = reinterpret_cast<decoder_context*>(de265ctx);
+
+  ctx->seek_to_next_random_access_point();
+}
+
+
 LIBDE265_API const struct de265_image* de265_get_next_picture(de265_decoder_context* de265ctx)
 {
   const struct de265_image* img = de265_peek_next_picture(de265ctx);
@@ -771,6 +779,11 @@ LIBDE265_API const struct de265_image_allocation *de265_get_default_image_alloca
 LIBDE265_API de265_PTS de265_get_image_PTS(const struct de265_image* img)
 {
   return img->pts;
+}
+
+LIBDE265_API int de265_get_image_POC(const struct de265_image* img)
+{
+  return img->PicOrderCntVal;
 }
 
 LIBDE265_API void* de265_get_image_user_data(const struct de265_image* img)

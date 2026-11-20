@@ -313,6 +313,12 @@ class decoder_context : public base_context {
 
   void reset();
 
+  /* Discard all buffered pictures and skip the input up to the next
+     random-access point. A following CRA picture is handled like a BLA
+     picture (DPB flushed, POC reset, RASL pictures not output).
+     Pending input data and parameter sets are kept. */
+  void seek_to_next_random_access_point();
+
   bool has_sps(int id) const { return sps[id] != nullptr; }
   bool has_pps(int id) const { return pps[id] != nullptr; }
 

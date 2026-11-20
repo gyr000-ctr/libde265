@@ -249,6 +249,49 @@ void decoder_context::reset()
   }
 }
 
+
+void decoder_context::seek_to_next_random_access_point()
+{
+  // Discard all decoder state that refers to pictures before the seek point,
+  // but keep the pending input data and the parameter sets: decoding resumes
+  // within the same stream at the next random-access point.
+
+  img = nullptr;
+
+  // Drop the back-reference to the previous picture's slice header before the
+  // DPB is cleared below (same reason as in reset()).
+  previous_slice_header = nullptr;
+
+  // --- drop pictures that have been pushed, but not yet completely decoded ---
+
+  while (!image_units.empty()) {
+    delete image_units.back();
+    image_units.pop_back();
+  }
+
+  // --- discard all buffered pictures (references, reorder buffer, output queue) ---
+
+  dpb.clear();
+
+  // --- reset POC derivation; the next IRAP picture restarts the POC cycle ---
+
+  current_image_poc_lsb = -1; // any invalid number
+  PicOrderCntMsb = 0;
+  prevPicOrderCntLsb = 0;
+  prevPicOrderCntMsb = 0;
+
+  NumPocStCurrBefore = 0;
+  NumPocStCurrAfter = 0;
+  NumPocStFoll = 0;
+  NumPocLtCurr = 0;
+  NumPocLtFoll = 0;
+
+  // Skip all VCL NAL units up to the next IRAP picture (checked in
+  // decode_NAL()) and handle a CRA picture like a BLA picture, i.e. flush
+  // the DPB, reset the POC, and do not output its RASL pictures.
+  HandleCraAsBlaFlag = true;
+}
+
 void base_context::set_acceleration_functions(enum de265_acceleration l)
 {
   // fill scalar functions first (so that function table is completely filled)
@@ -1190,6 +1233,20 @@ de265_error decoder_context::decode_NAL(std::unique_ptr<NAL_unit> nal)
   }
 
 
+  // While a seek is pending (HandleCraAsBlaFlag was set through
+  // seek_to_next_random_access_point()), discard all VCL NAL units up to the
+  // next IRAP picture. Non-VCL units (parameter sets, SEI) are still
+  // processed, so that the decoder stays in sync with the stream.
+  // The flag is cleared when the IRAP picture's slice header is processed.
+
+  if (nal_hdr.nal_unit_type < 32 &&
+      HandleCraAsBlaFlag &&
+      !isIRAP(nal_hdr.nal_unit_type)) {
+    nal_parser.free_NAL_unit(std::move(nal));
+    return DE265_OK;
+  }
+
+
   if (nal_hdr.nal_unit_type<32) {
     err = read_slice_NAL(reader, std::move(nal), nal_hdr);
   }
@@ -2037,14 +2094,18 @@ bool decoder_context::process_slice_segment_header(slice_segment_header* hdr,
           NoRaslOutputFlag = true;
           FirstAfterEndOfSequenceNAL = false;
         }
-      else if (0) // TODO: set HandleCraAsBlaFlag by external means
+      else if (isCRA(nal_unit_type) && HandleCraAsBlaFlag)
         {
+          // seek: handle the CRA picture like a BLA picture
+          NoRaslOutputFlag = true;
         }
       else
         {
           NoRaslOutputFlag   = false;
-          HandleCraAsBlaFlag = false;
         }
+
+      // A pending seek ends at the first IRAP picture.
+      HandleCraAsBlaFlag = false;
     }
 
 

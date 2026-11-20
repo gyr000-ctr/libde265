@@ -35,7 +35,7 @@ set (PACKAGE_VERSION ${PROJECT_VERSION})
 # Programs linked against libde265.so.0 will work with any libde265.so.0.x.y.
 #
 set(DE265_SOVERSION 0)
-set(DE265_LIBRARY_VERSION "0.2.3")
+set(DE265_LIBRARY_VERSION "0.3.0")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -261,6 +261,11 @@ if (ENABLE_INTERNAL_DEVELOPMENT_TOOLS)
 endif()
 if (WITH_FUZZERS)
   add_subdirectory (fuzzing)
+endif()
+
+include(CTest)
+if (BUILD_TESTING)
+  add_subdirectory (tests)
 endif()
 
 add_custom_target(dist

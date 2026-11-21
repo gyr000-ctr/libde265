@@ -197,6 +197,7 @@ public:
   de265_image  sao_output; // if SAO is used, this is allocated and used as SAO output buffer
 
   std::vector<slice_unit*> slice_units;
+  std::vector<sei_message> prefix_SEIs;
   std::vector<sei_message> suffix_SEIs;
 
   slice_unit* get_next_unprocessed_slice_segment() const {
@@ -521,6 +522,11 @@ class decoder_context : public base_context {
   // --- image unit queue ---
 
   std::vector<image_unit*> image_units;
+
+  // Prefix SEI NALs arrive before the VCL NALs of the picture they belong to.
+  // Keep them here until the next first slice segment starts a new image unit,
+  // which moves them into that image unit. A stream reset drops the list.
+  std::vector<sei_message> pending_prefix_SEIs;
 
   bool flush_reorder_buffer_at_this_frame = false;
 

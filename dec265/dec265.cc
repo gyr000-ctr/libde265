@@ -91,6 +91,7 @@ int highestTID = 100;
 int verbosity=0;
 int disable_deblocking=0;
 int disable_sao=0;
+bool dump_hdr=false;
 
 static struct option long_options[] = {
   {"quiet",      no_argument,       0, 'q' },
@@ -100,6 +101,7 @@ static struct option long_options[] = {
   {"frames",     required_argument, 0, 'f' },
   {"output",     required_argument, 0, 'o' },
   {"dump",       no_argument,       0, 'd' },
+  {"dump-hdr",   no_argument,       0,  0  },
   {"nal",        no_argument,       0, 'n' },
   {"videogfx",   no_argument,       0, 'V' },
   {"no-logging", no_argument,       0, 'L' },
@@ -329,6 +331,43 @@ bool display_sdl(const struct de265_image* img)
 static int width,height;
 static uint32_t framecnt=0;
 
+static void dump_hdr_metadata(const de265_image* img, uint32_t frame_number)
+{
+  de265_mastering_display_colour_volume mdcv;
+  de265_content_light_level cll;
+
+  bool has_mdcv = de265_get_mastering_display_colour_volume(img, &mdcv) != 0;
+  bool has_cll  = de265_get_content_light_level(img, &cll) != 0;
+
+  if (!has_mdcv && !has_cll) {
+    printf("frame %u: no HDR metadata\n", frame_number);
+    return;
+  }
+
+  printf("frame %u:\n", frame_number);
+
+  if (has_mdcv) {
+    printf("  mastering display colour volume:\n");
+    for (int c = 0; c < 3; c++) {
+      printf("  display primary %d: x=%.4f y=%.4f\n", c,
+             mdcv.display_primaries_x[c] / 50000.0,
+             mdcv.display_primaries_y[c] / 50000.0);
+    }
+    printf("  white point: x=%.4f y=%.4f\n",
+           mdcv.white_point_x / 50000.0,
+           mdcv.white_point_y / 50000.0);
+    printf("  max mastering luminance: %.4f cd/m^2\n",
+           mdcv.max_display_mastering_luminance / 10000.0);
+    printf("  min mastering luminance: %.4f cd/m^2\n",
+           mdcv.min_display_mastering_luminance / 10000.0);
+  }
+
+  if (has_cll) {
+    printf("  MaxCLL: %u cd/m^2\n", cll.max_content_light_level);
+    printf("  MaxFALL: %u cd/m^2\n", cll.max_pic_average_light_level);
+  }
+}
+
 bool output_image(const de265_image* img)
 {
   bool stop=false;
@@ -338,6 +377,10 @@ bool output_image(const de265_image* img)
 
   framecnt++;
   //printf("SHOW POC: %d / PTS: %ld / integrity: %d\n",img->PicOrderCntVal, img->pts, img->integrity);
+
+  if (dump_hdr) {
+    dump_hdr_metadata(img, framecnt);
+  }
 
 
   if (0) {
@@ -618,6 +661,11 @@ int main(int argc, char** argv)
     if (c == -1)
       break;
 
+    if (c == 0 && strcmp(long_options[option_index].name, "dump-hdr") == 0) {
+      dump_hdr = true;
+      continue;
+    }
+
     switch (c) {
     case 'q': quiet++; break;
     case 't': nThreads=parse_param(optarg, 0, std::nullopt, "-t"); break;
@@ -653,6 +701,7 @@ int main(int argc, char** argv)
     fprintf(stderr,"  -f, --frames N    set number of frames to process\n");
     fprintf(stderr,"  -o, --output      write YUV reconstruction\n");
     fprintf(stderr,"  -d, --dump        dump headers\n");
+    fprintf(stderr,"      --dump-hdr    dump HDR metadata (SEI 137/144) per picture\n");
 #if HAVE_VIDEOGFX && HAVE_SDL
     fprintf(stderr,"  -V, --videogfx    output with videogfx instead of SDL\n");
 #endif

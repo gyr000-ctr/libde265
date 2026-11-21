@@ -146,7 +146,11 @@ typedef enum {
   DE265_WARNING_INVALID_TU_BLOCK_SPLIT=1034,
   DE265_WARNING_RICE_PARAMETER_OUT_OF_RANGE=1035,
   DE265_WARNING_MAX_NUMBER_OF_SEI_MESSAGES_EXCEEDED=1036,
-  DE265_WARNING_SLICE_SEGMENT_ADDRESS_NOT_INCREASING=1037
+  DE265_WARNING_SLICE_SEGMENT_ADDRESS_NOT_INCREASING=1037,
+  DE265_WARNING_MASTERING_DISPLAY_INFO_INVALID=1038,
+  DE265_WARNING_CONTENT_LIGHT_LEVEL_INFO_INVALID=1039,
+  DE265_WARNING_ITU_T_T35_UNSUPPORTED=1040,
+  DE265_WARNING_SEI_NOT_ASSOCIATED_WITH_PICTURE=1041
 } de265_error;
 
 LIBDE265_API const char* de265_get_error_text(de265_error err);
@@ -201,6 +205,47 @@ LIBDE265_API int de265_get_image_full_range_flag(const de265_image*);
 LIBDE265_API int de265_get_image_colour_primaries(const de265_image*);
 LIBDE265_API int de265_get_image_transfer_characteristics(const de265_image*);
 LIBDE265_API int de265_get_image_matrix_coefficients(const de265_image*);
+
+
+/* === HDR static metadata (HEVC SEI 137 / 144) ===
+ *
+ * Both structures are ABI-stable POD types: only append fields at the end in
+ * future versions. The chromaticity coordinates are the raw u(16) values from
+ * the bitstream in units of 1/50000; the luminance levels are the raw u(32)
+ * values in units of 1/10000 cd/m^2.
+ */
+
+typedef struct de265_mastering_display_colour_volume {
+  uint16_t display_primaries_x[3];
+  uint16_t display_primaries_y[3];
+  uint16_t white_point_x;
+  uint16_t white_point_y;
+  uint32_t max_display_mastering_luminance;
+  uint32_t min_display_mastering_luminance;
+} de265_mastering_display_colour_volume;
+
+typedef struct de265_content_light_level {
+  uint16_t max_content_light_level;
+  uint16_t max_pic_average_light_level;
+} de265_content_light_level;
+
+/* Copy the mastering display colour volume (SEI type 137) attached to this
+ * picture into |out| and return 1. If the picture carries no such SEI,
+ * |out| is left untouched and 0 is returned. |out| may be NULL to test
+ * presence only.
+ */
+LIBDE265_API int de265_get_mastering_display_colour_volume(
+    const de265_image* img,
+    de265_mastering_display_colour_volume* out);
+
+/* Copy the content light level information (SEI type 144) attached to this
+ * picture into |out| and return 1. If the picture carries no such SEI,
+ * |out| is left untouched and 0 is returned. |out| may be NULL to test
+ * presence only.
+ */
+LIBDE265_API int de265_get_content_light_level(
+    const de265_image* img,
+    de265_content_light_level* out);
 
 
 /* === decoder === */

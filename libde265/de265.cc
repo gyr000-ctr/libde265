@@ -187,6 +187,14 @@ LIBDE265_API const char* de265_get_error_text(de265_error err)
     return "number of SEI messages exceeds security limit, dropped";
   case DE265_WARNING_SLICE_SEGMENT_ADDRESS_NOT_INCREASING:
     return "slice segment address not increasing within picture, slice segment dropped";
+  case DE265_WARNING_MASTERING_DISPLAY_INFO_INVALID:
+    return "mastering display colour volume SEI (type 137) has invalid payload";
+  case DE265_WARNING_CONTENT_LIGHT_LEVEL_INFO_INVALID:
+    return "content light level SEI (type 144) has invalid payload";
+  case DE265_WARNING_ITU_T_T35_UNSUPPORTED:
+    return "unsupported ITU-T T.35 user data registered SEI (type 4), payload ignored";
+  case DE265_WARNING_SEI_NOT_ASSOCIATED_WITH_PICTURE:
+    return "SEI message cannot be associated with any picture, payload ignored";
 
   default: return "unknown error";
   }
@@ -813,6 +821,45 @@ LIBDE265_API int de265_get_image_transfer_characteristics(const struct de265_ima
 LIBDE265_API int de265_get_image_matrix_coefficients(const struct de265_image* img)
 {
   return img->get_sps().vui.matrix_coeffs;
+}
+
+LIBDE265_API int de265_get_mastering_display_colour_volume(
+    const struct de265_image* img,
+    struct de265_mastering_display_colour_volume* out)
+{
+  if (!img->has_mastering_display_colour_volume) {
+    return 0;
+  }
+
+  if (out) {
+    const auto& mdcv = img->mastering_display_colour_volume;
+    for (int c = 0; c < 3; c++) {
+      out->display_primaries_x[c] = mdcv.display_primaries_x[c];
+      out->display_primaries_y[c] = mdcv.display_primaries_y[c];
+    }
+    out->white_point_x = mdcv.white_point_x;
+    out->white_point_y = mdcv.white_point_y;
+    out->max_display_mastering_luminance = mdcv.max_display_mastering_luminance;
+    out->min_display_mastering_luminance = mdcv.min_display_mastering_luminance;
+  }
+
+  return 1;
+}
+
+LIBDE265_API int de265_get_content_light_level(
+    const struct de265_image* img,
+    struct de265_content_light_level* out)
+{
+  if (!img->has_content_light_level) {
+    return 0;
+  }
+
+  if (out) {
+    out->max_content_light_level     = img->content_light_level.max_content_light_level;
+    out->max_pic_average_light_level = img->content_light_level.max_pic_average_light_level;
+  }
+
+  return 1;
 }
 
 }

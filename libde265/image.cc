@@ -494,6 +494,13 @@ void de265_image::release()
     delete slices[i];
   }
   slices.clear();
+
+  // HDR metadata belongs to the previous picture only; the buffer may be
+  // reused from the image pool for a picture that carries no HDR SEI.
+  has_mastering_display_colour_volume = false;
+  has_content_light_level = false;
+  mastering_display_colour_volume = {};
+  content_light_level = {};
 }
 
 

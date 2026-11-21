@@ -73,7 +73,10 @@ static void dump_sei_decoded_picture_hash(const sei_message* sei,
   case sei_decoded_picture_hash_type_checksum: loginfo(LogSEI,"checksum\n"); break;
   }
 
-  int nHashes = sps->chroma_format_idc==0 ? 1 : 3;
+  // The stream may carry a hash SEI before any SPS is active. Without an SPS
+  // the chroma format (and thus the number of hashes) is unknown, so dump the
+  // maximum of three entries rather than dereferencing the null SPS.
+  int nHashes = (sps == nullptr || sps->chroma_format_idc != 0) ? 3 : 1;
   for (int i=0;i<nHashes;i++) {
     switch (seihash->hash_type) {
     case sei_decoded_picture_hash_type_MD5:
@@ -366,11 +369,134 @@ static de265_error process_sei_decoded_picture_hash(const sei_message* sei, de26
 
 #define MAX_SEI_SIZE UINT32_C(0xFFFFFFFF)
 
+// Sizes of the SEI payloads that carry fixed-size syntax structures.
+#define MDCV_PAYLOAD_SIZE 24  // mastering display colour volume (SEI 137)
+#define CLL_PAYLOAD_SIZE   4  // content light level information (SEI 144)
+
+
+static de265_error read_sei_mastering_display(bitreader* reader, sei_message* sei)
+{
+  sei_mastering_display_colour_volume* mdcv = &sei->data.mastering_display;
+
+  // The message is defined to carry exactly 24 payload bytes. A truncated or
+  // oversized payload is non-conformant: reject it instead of binding partial
+  // or fabricated data. read_sei() guarantees the whole payload is present.
+  if (sei->payload_size != MDCV_PAYLOAD_SIZE) {
+    return DE265_WARNING_MASTERING_DISPLAY_INFO_INVALID;
+  }
+
+  for (int c = 0; c < 3; c++) {
+    mdcv->display_primaries_x[c] = reader->get_bits(16);
+    mdcv->display_primaries_y[c] = reader->get_bits(16);
+  }
+  mdcv->white_point_x = reader->get_bits(16);
+  mdcv->white_point_y = reader->get_bits(16);
+  mdcv->max_display_mastering_luminance = reader->get_bits(32);
+  mdcv->min_display_mastering_luminance = reader->get_bits(32);
+
+  return DE265_OK;
+}
+
+
+static de265_error read_sei_content_light_level(bitreader* reader, sei_message* sei)
+{
+  sei_content_light_level* cll = &sei->data.content_light_level;
+
+  // Exactly 4 payload bytes by definition; reject truncated/oversized.
+  if (sei->payload_size != CLL_PAYLOAD_SIZE) {
+    return DE265_WARNING_CONTENT_LIGHT_LEVEL_INFO_INVALID;
+  }
+
+  cll->max_content_light_level      = reader->get_bits(16);
+  cll->max_pic_average_light_level  = reader->get_bits(16);
+
+  return DE265_OK;
+}
+
+
+static de265_error read_sei_itu_t_t35(bitreader* reader, sei_message* sei)
+{
+  // We never extract HDR metadata out of registered user data: HDR10 uses the
+  // native SEI 137/144 messages. Anything that is too short to even contain the
+  // itu_t_t35_country_code, or that uses a country code / terminal provider we
+  // do not understand, is reported and left unbound.
+  if (sei->payload_size < 1) {
+    return DE265_WARNING_ITU_T_T35_UNSUPPORTED;
+  }
+
+  /*uint8_t country_code =*/ reader->get_bits(8);
+
+  // All country codes are currently unsupported (including 0xFF's extended
+  // country code form, which would need two more bytes).
+  return DE265_WARNING_ITU_T_T35_UNSUPPORTED;
+}
+
+
+static void dump_sei_mastering_display(const sei_message* sei)
+{
+#ifdef DE265_LOG_INFO
+  const sei_mastering_display_colour_volume* mdcv = &sei->data.mastering_display;
+
+  loginfo(LogSEI, "  mastering display colour volume:\n");
+  for (int c = 0; c < 3; c++) {
+    loginfo(LogSEI, "  display primary %d: x=%u y=%u\n", c,
+            mdcv->display_primaries_x[c], mdcv->display_primaries_y[c]);
+  }
+  loginfo(LogSEI, "  white point: x=%u y=%u\n",
+          mdcv->white_point_x, mdcv->white_point_y);
+  loginfo(LogSEI, "  max mastering luminance: %u\n",
+          mdcv->max_display_mastering_luminance);
+  loginfo(LogSEI, "  min mastering luminance: %u\n",
+          mdcv->min_display_mastering_luminance);
+#else
+  (void)sei;
+#endif
+}
+
+
+static void dump_sei_content_light_level(const sei_message* sei)
+{
+#ifdef DE265_LOG_INFO
+  const sei_content_light_level* cll = &sei->data.content_light_level;
+
+  loginfo(LogSEI, "  content light level information:\n");
+  loginfo(LogSEI, "  MaxCLL: %u\n", cll->max_content_light_level);
+  loginfo(LogSEI, "  MaxFALL: %u\n", cll->max_pic_average_light_level);
+#else
+  (void)sei;
+#endif
+}
+
+
+static de265_error process_sei_mastering_display(const sei_message* sei,
+                                                 de265_image* img)
+{
+  img->has_mastering_display_colour_volume = true;
+  img->mastering_display_colour_volume = sei->data.mastering_display;
+  return DE265_OK;
+}
+
+
+static de265_error process_sei_content_light_level(const sei_message* sei,
+                                                   de265_image* img)
+{
+  img->has_content_light_level = true;
+  img->content_light_level = sei->data.content_light_level;
+  return DE265_OK;
+}
+
+
 de265_error read_sei(bitreader* reader, sei_message* sei, bool suffix, const seq_parameter_set* sps)
 {
+  sei->suffix = suffix;
+
   uint16_t payload_type = 0;
   for (;;)
     {
+      if (reader->bits_available() < 8) {
+        return DE265_ERROR_CANNOT_PROCESS_SEI;
+      }
+
       uint8_t byte = static_cast<uint8_t>(reader->get_bits(8));
 
       if (std::numeric_limits<uint16_t>::max() - byte < payload_type) {
@@ -386,6 +512,10 @@ de265_error read_sei(bitreader* reader, sei_message* sei, bool suffix, const seq
   uint32_t payload_size = 0;
   for (;;)
     {
+      if (reader->bits_available() < 8) {
+        return DE265_ERROR_CANNOT_PROCESS_SEI;
+      }
+
       uint32_t byte = reader->get_bits(8);
 
       if (MAX_SEI_SIZE - byte < payload_size) {
@@ -399,19 +529,66 @@ de265_error read_sei(bitreader* reader, sei_message* sei, bool suffix, const seq
   sei->payload_type = payload_type;
   sei->payload_size = payload_size;
 
+  // The reader is byte aligned inside an SEI NAL (all syntax so far is whole
+  // bytes). Remember where the payload starts so we can land exactly on its
+  // end no matter how many bytes the type-specific handler consumed. This
+  // keeps following SEI messages and the RBSP trailing bits aligned.
+  const int payload_start = reader->get_byte_position();
+  const int payload_bytes_available = reader->bits_available() / 8;
+  const bool payload_complete =
+      static_cast<uint32_t>(payload_bytes_available) >= payload_size;
 
   // --- sei message dispatch
 
   de265_error err = DE265_OK;
 
-  switch (sei->payload_type) {
+  if (!payload_complete) {
+    // Declared payload extends beyond the NAL data. Report the specific
+    // message type when we know it; unknown types are skipped silently below.
+    switch (sei->payload_type) {
+    case sei_payload_type_mastering_display_colour_volume:
+      err = DE265_WARNING_MASTERING_DISPLAY_INFO_INVALID;
+      break;
+    case sei_payload_type_content_light_level_info:
+      err = DE265_WARNING_CONTENT_LIGHT_LEVEL_INFO_INVALID;
+      break;
+    case sei_payload_type_user_data_registered_itu_t_t35:
+      err = DE265_WARNING_ITU_T_T35_UNSUPPORTED;
+      break;
+    default:
+      break;
+    }
+  }
+  else switch (sei->payload_type) {
   case sei_payload_type_decoded_picture_hash:
     err = read_sei_decoded_picture_hash(reader,sei,sps);
     break;
 
-  default:
-    // TODO: unknown SEI messages are ignored
+  case sei_payload_type_mastering_display_colour_volume:
+    err = read_sei_mastering_display(reader, sei);
     break;
+
+  case sei_payload_type_content_light_level_info:
+    err = read_sei_content_light_level(reader, sei);
+    break;
+
+  case sei_payload_type_user_data_registered_itu_t_t35:
+    err = read_sei_itu_t_t35(reader, sei);
+    break;
+
+  default:
+    // Unknown SEI messages are ignored.
+    break;
+  }
+
+  // Skip to the exact end of the declared payload. For a truncated NAL only
+  // the bytes that actually exist are consumed, which parks the reader at the
+  // NAL end so the outer SEI loop terminates.
+  const int target_position =
+      payload_start + static_cast<int>(payload_complete ? payload_size
+                                                        : payload_bytes_available);
+  while (reader->get_byte_position() < target_position) {
+    reader->get_bits(8);
   }
 
   return err;
@@ -419,15 +596,24 @@ de265_error read_sei(bitreader* reader, sei_message* sei, bool suffix, const seq
 
 void dump_sei(const sei_message* sei, const seq_parameter_set* sps)
 {
-  loginfo(LogHeaders,"SEI message: %s\n", sei_type_name(sei->payload_type));
+  loginfo(LogHeaders,"SEI message: %s (%s)\n", sei_type_name(sei->payload_type),
+          sei->suffix ? "suffix" : "prefix");
 
   switch (sei->payload_type) {
   case sei_payload_type_decoded_picture_hash:
     dump_sei_decoded_picture_hash(sei, sps);
     break;
 
+  case sei_payload_type_mastering_display_colour_volume:
+    dump_sei_mastering_display(sei);
+    break;
+
+  case sei_payload_type_content_light_level_info:
+    dump_sei_content_light_level(sei);
+    break;
+
   default:
-    // TODO: unknown SEI messages are ignored
+    // Unknown SEI messages are ignored.
     break;
   }
 }
@@ -439,7 +625,8 @@ de265_error process_sei(const sei_message* sei, de265_image* img)
 
   switch (sei->payload_type) {
   case sei_payload_type_decoded_picture_hash:
-    if (img->decctx->param_sei_check_hash) {
+    // The decoded picture hash is only defined as a suffix SEI.
+    if (sei->suffix && img->decctx->param_sei_check_hash) {
       err = process_sei_decoded_picture_hash(sei, img);
       if (err==DE265_OK) {
         //printf("SEI check ok\n");
@@ -448,8 +635,16 @@ de265_error process_sei(const sei_message* sei, de265_image* img)
 
     break;
 
+  case sei_payload_type_mastering_display_colour_volume:
+    err = process_sei_mastering_display(sei, img);
+    break;
+
+  case sei_payload_type_content_light_level_info:
+    err = process_sei_content_light_level(sei, img);
+    break;
+
   default:
-    // TODO: unknown SEI messages are ignored
+    // Unknown SEI messages are ignored.
     break;
   }
 
@@ -510,6 +705,10 @@ const char* sei_type_name(uint16_t type)
     return "no_display";
   case sei_payload_type_motion_constrained_tile_sets:
     return "motion_constrained_tile_sets";
+  case sei_payload_type_mastering_display_colour_volume:
+    return "mastering_display_colour_volume";
+  case sei_payload_type_content_light_level_info:
+    return "content_light_level_info";
 
   default:
     return "unknown SEI message";

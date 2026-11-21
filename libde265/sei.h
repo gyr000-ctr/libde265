@@ -50,7 +50,9 @@ enum sei_payload_type {
   sei_payload_type_scalable_nesting = 133,
   sei_payload_type_region_refresh_info = 134,
   sei_payload_type_no_display = 135,
-  sei_payload_type_motion_constrained_tile_sets = 136
+  sei_payload_type_motion_constrained_tile_sets = 136,
+  sei_payload_type_mastering_display_colour_volume = 137,
+  sei_payload_type_content_light_level_info = 144
 };
 
 
@@ -69,12 +71,38 @@ typedef struct {
 } sei_decoded_picture_hash;
 
 
+// SEI type 137: mastering display colour volume.
+// Chromaticities are coded as u(16) in units of 1/50000,
+// luminance values as u(32) in units of 1/10000 cd/m^2.
+typedef struct {
+  uint16_t display_primaries_x[3];
+  uint16_t display_primaries_y[3];
+  uint16_t white_point_x;
+  uint16_t white_point_y;
+  uint32_t max_display_mastering_luminance;
+  uint32_t min_display_mastering_luminance;
+} sei_mastering_display_colour_volume;
+
+
+// SEI type 144: content light level information.
+typedef struct {
+  uint16_t max_content_light_level;        // cd/m^2
+  uint16_t max_pic_average_light_level;    // cd/m^2
+} sei_content_light_level;
+
+
 typedef struct {
   uint16_t payload_type; // enum sei_payload_type
   uint32_t payload_size;
 
+  // true when the message came from a suffix SEI NAL (NAL type 40),
+  // false for a prefix SEI NAL (NAL type 39).
+  bool suffix = false;
+
   union {
     sei_decoded_picture_hash decoded_picture_hash;
+    sei_mastering_display_colour_volume mastering_display;
+    sei_content_light_level content_light_level;
   } data;
 } sei_message;
 

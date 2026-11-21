@@ -49,12 +49,28 @@ public:
 
   bool check_rbsp_trailing_bits(); // return true if remaining filler bits are all zero
 
+  // Number of bits still readable: bits held in the internal refill buffer
+  // plus the bits in the not-yet-refilled tail bytes. Note that bytes_remaining
+  // alone under-reports the available data because refill() pulls tail bytes
+  // into the internal buffer ahead of the reader. The value can go negative
+  // only when a caller read past the end of the buffer; callers that bound
+  // their reads with bits_available() beforehand never observe that.
+  int bits_available() const { return nextbits_cnt + 8 * bytes_remaining; }
+
+  // Absolute byte position of the next byte to read: bytes consumed from the
+  // tail array plus the whole bytes currently held in the refill buffer.
+  // Only meaningful while the reader is byte aligned (all SEI syntax is).
+  int get_byte_position() const {
+    return static_cast<int>(data - buffer_start) - nextbits_cnt / 8;
+  }
+
   uint8_t* data = nullptr;
   int bytes_remaining = 0;
 
 private:
   void refill(); // refill to at least 56+1 bits
 
+  uint8_t* buffer_start = nullptr; // first byte of the buffer, for get_byte_position()
   uint64_t nextbits = 0; // left-aligned bits
   int nextbits_cnt = 0;
 };

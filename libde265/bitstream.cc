@@ -30,6 +30,7 @@
 bitreader::bitreader(unsigned char* buffer, int len)
 {
   data = buffer;
+  buffer_start = buffer;
   bytes_remaining = len;
 }
 

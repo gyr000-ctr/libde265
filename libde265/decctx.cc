@@ -241,6 +241,8 @@ void decoder_context::reset()
     image_units.pop_back();
   }
 
+  pending_prefix_SEIs.clear();
+
   // --- start threads again ---
 
   if (num_worker_threads>0) {
@@ -429,16 +431,46 @@ de265_error decoder_context::read_sei_NAL(bitreader& reader, bool suffix)
 {
   logdebug(LogHeaders,"----> read SEI\n");
 
-  sei_message sei;
-
   //push_current_picture_to_output_queue();
 
-  de265_error err = DE265_OK;
+  // One SEI NAL unit may contain several SEI messages. Parse until only the
+  // RBSP trailing bits remain. The first trailing byte is 0x80 (stop bit one,
+  // alignment zero bits); stop as soon as it is the next byte to read.
+  while (reader.bits_available() >= 8) {
+    // The RBSP trailing bits are a single 1 stop bit followed by alignment
+    // zero bits, so the first trailing byte is exactly 0x80. Any other value
+    // (including 0x89, a payload type of 137) starts another SEI message.
+    if (reader.peek_bits(8) == 0x80) {
+      break;
+    }
 
-  if ((err=read_sei(&reader,&sei, suffix, current_sps.get())) == DE265_OK) {
+    sei_message sei;
+    de265_error msg_err = read_sei(&reader, &sei, suffix, current_sps.get());
+
+    if (msg_err != DE265_OK) {
+      // Malformed payloads (truncated/oversized HDR SEI, unsupported T.35):
+      // report and continue with the next message. The declared payload bytes
+      // have already been consumed by read_sei(), so parsing stays aligned.
+      add_warning(msg_err, false);
+      continue;
+    }
+
     dump_sei(&sei, current_sps.get());
 
-    if (image_units.empty()==false && suffix) {
+    if (suffix) {
+      if (image_units.empty()) {
+        // A suffix SEI must follow the coded picture it refers to. With no
+        // picture in flight there is nothing to attach it to. Only the SEI
+        // types we actually interpret can end up hiding data this way, so
+        // warn only for those rather than for every suffix NAL.
+        if (sei.payload_type == sei_payload_type_mastering_display_colour_volume ||
+            sei.payload_type == sei_payload_type_content_light_level_info ||
+            sei.payload_type == sei_payload_type_user_data_registered_itu_t_t35) {
+          add_warning(DE265_WARNING_SEI_NOT_ASSOCIATED_WITH_PICTURE, false);
+        }
+        continue;
+      }
+
       uint32_t max_SEI_messages = param_security_limits.max_SEI_messages;
       if (max_SEI_messages != 0 &&
           image_units.back()->suffix_SEIs.size() >= max_SEI_messages) {
@@ -449,12 +481,19 @@ de265_error decoder_context::read_sei_NAL(bitreader& reader, bool suffix)
 
       image_units.back()->suffix_SEIs.push_back(sei);
     }
-  }
-  else {
-    add_warning(err, false);
+    else {
+      uint32_t max_SEI_messages = param_security_limits.max_SEI_messages;
+      if (max_SEI_messages != 0 &&
+          pending_prefix_SEIs.size() >= max_SEI_messages) {
+        add_warning(DE265_WARNING_MAX_NUMBER_OF_SEI_MESSAGES_EXCEEDED, false);
+        return DE265_WARNING_MAX_NUMBER_OF_SEI_MESSAGES_EXCEEDED;
+      }
+
+      pending_prefix_SEIs.push_back(sei);
+    }
   }
 
-  return err;
+  return DE265_OK;
 }
 
 de265_error decoder_context::read_eos_NAL(bitreader& reader)
@@ -560,6 +599,11 @@ de265_error decoder_context::read_slice_NAL(bitreader& reader, std::unique_ptr<N
   if (shdr->first_slice_segment_in_pic_flag) {
     image_unit* imgunit = new image_unit;
     imgunit->img = this->img;
+
+    // Prefix SEI NALs that preceded this first slice belong to this picture.
+    imgunit->prefix_SEIs = std::move(pending_prefix_SEIs);
+    pending_prefix_SEIs.clear();
+
     image_units.push_back(imgunit);
 
     // A new picture starts here. Drop the reference to the previous picture's
@@ -686,14 +730,26 @@ de265_error decoder_context::decode_some(bool* did_work)
     else
       run_postprocessing_filters_sequential(imgunit->img);
 
-    // process suffix SEIs
+    // process prefix SEIs, then suffix SEIs. Both are applied to the picture
+    // in NAL order; a suffix message of the same type overrides a prefix one
+    // because it is processed last.
 
-    for (size_t i=0;i<imgunit->suffix_SEIs.size();i++) {
-      const sei_message& sei = imgunit->suffix_SEIs[i];
+    for (size_t i=0;i<imgunit->prefix_SEIs.size();i++) {
+      const sei_message& sei = imgunit->prefix_SEIs[i];
 
       err = process_sei(&sei, imgunit->img);
       if (err != DE265_OK)
         break;
+    }
+
+    if (err == DE265_OK) {
+      for (size_t i=0;i<imgunit->suffix_SEIs.size();i++) {
+        const sei_message& sei = imgunit->suffix_SEIs[i];
+
+        err = process_sei(&sei, imgunit->img);
+        if (err != DE265_OK)
+          break;
+      }
     }
 
 

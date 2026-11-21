@@ -41,6 +41,7 @@
 #include "libde265/threads.h"
 #include "libde265/slice.h"
 #include "libde265/nal.h"
+#include "libde265/sei.h"
 
 struct en265_encoder_context;
 
@@ -434,6 +435,14 @@ public:
                                                 and changed on decoding errors.
                                               */
   bool sei_hash_check_result = false;
+
+  // --- HDR static metadata (attached from SEI 137/144 of this picture) ---
+  // The has_* flags distinguish "SEI absent" from "SEI present with zero
+  // values". Images are reused from a pool, so release() clears these.
+  bool has_mastering_display_colour_volume = false;
+  bool has_content_light_level = false;
+  sei_mastering_display_colour_volume mastering_display_colour_volume{};
+  sei_content_light_level content_light_level{};
 
   nal_header nal_hdr;
 
